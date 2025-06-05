@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "puppeteer-mcp": {
+      "command": "node",
+      "args": ["/Users/aaronshier/Documents/GitHub/PuppeteerMCP/build/index.js"],
+      "env": {}
+    }
+  }
+} 
