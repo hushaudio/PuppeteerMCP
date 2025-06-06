@@ -86,10 +86,90 @@ async function collectPageErrors(page) {
     });
     return errors;
 }
+async function executePageActions(page, actions) {
+    for (const action of actions) {
+        try {
+            switch (action.type) {
+                case "click":
+                    if (!action.selector)
+                        throw new Error("Click action requires selector");
+                    await page.waitForSelector(action.selector, { timeout: 5000 });
+                    await page.click(action.selector);
+                    break;
+                case "type":
+                    if (!action.selector || !action.text)
+                        throw new Error("Type action requires selector and text");
+                    await page.waitForSelector(action.selector, { timeout: 5000 });
+                    await page.type(action.selector, action.text);
+                    break;
+                case "clear":
+                    if (!action.selector)
+                        throw new Error("Clear action requires selector");
+                    await page.waitForSelector(action.selector, { timeout: 5000 });
+                    await page.evaluate((selector) => {
+                        const element = document.querySelector(selector);
+                        if (element)
+                            element.value = '';
+                    }, action.selector);
+                    break;
+                case "scroll":
+                    if (action.x !== undefined && action.y !== undefined) {
+                        await page.evaluate((x, y) => window.scrollTo(x, y), action.x, action.y);
+                    }
+                    else if (action.selector) {
+                        await page.waitForSelector(action.selector, { timeout: 5000 });
+                        await page.evaluate((selector) => {
+                            document.querySelector(selector)?.scrollIntoView();
+                        }, action.selector);
+                    }
+                    else {
+                        // Scroll to bottom of page if no coordinates or selector
+                        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+                    }
+                    break;
+                case "hover":
+                    if (!action.selector)
+                        throw new Error("Hover action requires selector");
+                    await page.waitForSelector(action.selector, { timeout: 5000 });
+                    await page.hover(action.selector);
+                    break;
+                case "select":
+                    if (!action.selector || !action.value)
+                        throw new Error("Select action requires selector and value");
+                    await page.waitForSelector(action.selector, { timeout: 5000 });
+                    await page.select(action.selector, action.value);
+                    break;
+                case "wait":
+                    const duration = action.duration || 1000;
+                    await new Promise(resolve => setTimeout(resolve, duration));
+                    break;
+                case "waitForElement":
+                    if (!action.selector)
+                        throw new Error("WaitForElement action requires selector");
+                    const timeout = action.timeout || 5000;
+                    await page.waitForSelector(action.selector, { timeout });
+                    break;
+                case "navigate":
+                    if (!action.url)
+                        throw new Error("Navigate action requires url");
+                    await page.goto(action.url, { waitUntil: 'networkidle0' });
+                    break;
+                default:
+                    throw new Error(`Unknown action type: ${action.type}`);
+            }
+            // Small delay between actions to ensure stability
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        catch (error) {
+            throw new Error(`Failed to execute action ${action.type}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+}
 export async function screenshotTool(args) {
     const { url, breakpoints = DEFAULT_BREAKPOINTS, headless = true, waitFor = "networkidle0", timeout = 30000, maxWidth = 1280, // Default max width for optimization
     imageFormat = "jpeg", // Default to JPEG for smaller file size
     quality = 80, // Default JPEG quality
+    actions = [], // Default empty actions array
      } = args;
     if (!url) {
         return {
@@ -128,6 +208,10 @@ export async function screenshotTool(args) {
                 waitUntil: waitFor,
                 timeout
             });
+            // Execute page actions if provided
+            if (actions.length > 0) {
+                await executePageActions(page, actions);
+            }
             // Get actual content dimensions
             const actualContentSize = await getFullPageDimensions(page);
             // Configure screenshot options

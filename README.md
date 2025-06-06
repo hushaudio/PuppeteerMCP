@@ -24,6 +24,7 @@ This enables more effective AI-assisted development by providing visual context 
 - ✅ **Structured tool responses** with detailed metadata
 - ✅ **Error reporting** - JavaScript errors, console logs, network issues
 - ✅ **Performance optimization** - JPEG compression and width limiting
+- ✅ **Page interaction capabilities** - Click, type, scroll, hover, form filling, waiting
 
 ### In Progress
 - ✅ **Completed** - Error reporting and debugging features
@@ -32,7 +33,6 @@ This enables more effective AI-assisted development by providing visual context 
 
 #### 🚀 High Priority Features
 - 📋 **Element-specific screenshots** - Target CSS selectors for component-level captures
-- 📋 **Page interaction capabilities** - Click, scroll, fill forms, hover elements
 - 📋 **Performance monitoring** - Lighthouse scores, Core Web Vitals, bundle analysis
 - 📋 **Accessibility testing** - WCAG violations, color contrast, keyboard navigation
 
@@ -62,6 +62,56 @@ This enables more effective AI-assisted development by providing visual context 
 - 📋 **Code quality insights** - Spot code smells through visual patterns
 - 📋 **Automated bug detection** - Visual anomaly detection
 - 📋 **Performance recommendations** - AI-driven optimization suggestions
+
+## Page Interaction Capabilities
+
+### ✅ NEW: Automated Page Actions
+The screenshot tool now supports executing a sequence of page interactions before capturing screenshots, enabling:
+
+- **🎯 Form Testing**: Fill forms, select dropdowns, check boxes
+- **🖱️ User Interactions**: Click buttons, hover elements, scroll to sections  
+- **⏱️ Wait Conditions**: Wait for elements to appear or specific durations
+- **🧭 Navigation**: Navigate between pages or reload current page
+- **📝 Input Management**: Type text, clear fields, select options
+
+#### Available Action Types:
+- **`click`** - Click an element by CSS selector
+- **`type`** - Type text into an input field
+- **`clear`** - Clear an input field's value
+- **`scroll`** - Scroll to coordinates or element
+- **`hover`** - Hover over an element
+- **`select`** - Select option from dropdown
+- **`wait`** - Wait for specified duration
+- **`waitForElement`** - Wait for element to appear
+- **`navigate`** - Navigate to a different URL
+
+#### Example Usage:
+```json
+{
+  "url": "https://example.com/login",
+  "actions": [
+    {
+      "type": "type",
+      "selector": "#username",
+      "text": "testuser@example.com"
+    },
+    {
+      "type": "type", 
+      "selector": "#password",
+      "text": "password123"
+    },
+    {
+      "type": "click",
+      "selector": "#login-button"
+    },
+    {
+      "type": "waitForElement",
+      "selector": ".dashboard",
+      "timeout": 5000
+    }
+  ]
+}
+```
 
 ## MCP Tool Specification
 
@@ -106,6 +156,55 @@ Captures screenshots of web pages at one or more viewport breakpoints using Pupp
         "type": "number",
         "description": "Navigation timeout in milliseconds",
         "default": 30000
+      },
+      "actions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["click", "type", "scroll", "wait", "hover", "select", "clear", "navigate", "waitForElement"],
+              "description": "Type of action to perform"
+            },
+            "selector": {
+              "type": "string", 
+              "description": "CSS selector for element-based actions"
+            },
+            "text": {
+              "type": "string",
+              "description": "Text to type (for type action)"
+            },
+            "value": {
+              "type": "string",
+              "description": "Value to select (for select action)"
+            },
+            "x": {
+              "type": "number",
+              "description": "X coordinate (for scroll action)"
+            },
+            "y": {
+              "type": "number", 
+              "description": "Y coordinate (for scroll action)"
+            },
+            "duration": {
+              "type": "number",
+              "description": "Duration in milliseconds (for wait action)",
+              "default": 1000
+            },
+            "url": {
+              "type": "string",
+              "description": "URL to navigate to (for navigate action)"
+            },
+            "timeout": {
+              "type": "number",
+              "description": "Timeout in milliseconds (for waitForElement action)",
+              "default": 5000
+            }
+          },
+          "required": ["type"]
+        },
+        "description": "Array of page interactions to perform before taking screenshots"
       }
     },
     "required": ["url"]

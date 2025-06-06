@@ -72,6 +72,55 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                             maximum: 100,
                             description: "JPEG quality (1-100, only applies when imageFormat is 'jpeg')",
                             default: 80
+                        },
+                        actions: {
+                            type: "array",
+                            items: {
+                                type: "object",
+                                properties: {
+                                    type: {
+                                        type: "string",
+                                        enum: ["click", "type", "scroll", "wait", "hover", "select", "clear", "navigate", "waitForElement"],
+                                        description: "Type of action to perform"
+                                    },
+                                    selector: {
+                                        type: "string",
+                                        description: "CSS selector for element-based actions"
+                                    },
+                                    text: {
+                                        type: "string",
+                                        description: "Text to type (for type action)"
+                                    },
+                                    value: {
+                                        type: "string",
+                                        description: "Value to select (for select action)"
+                                    },
+                                    x: {
+                                        type: "number",
+                                        description: "X coordinate (for scroll action)"
+                                    },
+                                    y: {
+                                        type: "number",
+                                        description: "Y coordinate (for scroll action)"
+                                    },
+                                    duration: {
+                                        type: "number",
+                                        description: "Duration in milliseconds (for wait action)",
+                                        default: 1000
+                                    },
+                                    url: {
+                                        type: "string",
+                                        description: "URL to navigate to (for navigate action)"
+                                    },
+                                    timeout: {
+                                        type: "number",
+                                        description: "Timeout in milliseconds (for waitForElement action)",
+                                        default: 5000
+                                    }
+                                },
+                                required: ["type"]
+                            },
+                            description: "Array of page interactions to perform before taking screenshots"
                         }
                     },
                     required: ["url"]
@@ -92,6 +141,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const content = [];
             // Add summary text with error information
             let summaryText = `Successfully captured ${result.screenshots.length} screenshot(s) for ${request.params.arguments?.url || 'the requested URL'}`;
+            // Add actions summary if actions were provided
+            if (request.params.arguments?.actions && Array.isArray(request.params.arguments.actions) && request.params.arguments.actions.length > 0) {
+                const actionTypes = request.params.arguments.actions.map((action) => action.type);
+                summaryText += `\n🎯 Executed ${actionTypes.length} page action(s): ${actionTypes.join(', ')}`;
+            }
             // Add error summary if there are any issues
             if (result.errorSummary.totalErrors > 0 || result.errorSummary.totalWarnings > 0 || result.errorSummary.totalLogs > 0) {
                 summaryText += `\n\n📊 Page Activity Detected:`;
