@@ -1,6 +1,6 @@
 # PuppeteerMCP Server
 
-A Model Context Protocol (MCP) server that provides screenshot tools for AI assistants using Puppeteer. This server integrates with MCP-compatible hosts like Cursor to enable AI agents to capture and analyze web page screenshots.
+Developing website UI's with MCP just got a lot easier. A Model Context Protocol (MCP) server that provides screenshot tools for AI assistants using Puppeteer. This server integrates with MCP-compatible hosts like Cursor to enable AI agents to capture and analyze web page screenshots, console logs, errors, and warnings.
 
 ## Overview
 
@@ -26,17 +26,16 @@ This enables more effective AI-assisted development by providing visual context 
 - ✅ **Performance optimization** - JPEG compression and width limiting
 
 ### In Progress
-- 🔄 Implementing proper MCP server structure
-- 🔄 Screenshot tool development
+- ✅ **Completed** - Error reporting and debugging features
 
 ### Future Developments
-- 📋 Multiple screenshot formats (PNG, JPEG, WebP)
 - 📋 Element-specific screenshots (CSS selectors)
 - 📋 Page interaction capabilities (click, scroll, type)
 - 📋 Performance metrics capture
 - 📋 Advanced viewport configurations
 - 📋 Screenshot annotations and markup
 - 📋 Mobile device emulation
+- 📋 Video recording capabilities
 
 ## MCP Tool Specification
 
@@ -99,19 +98,87 @@ If no breakpoints are specified, the tool uses these standard responsive breakpo
 {
   "screenshots": [
     {
-      "breakpoint": { "width": 375 },
-      "screenshot": "base64-encoded-png-data",
+      "width": 375,
+      "height": 2340,
+      "screenshot": "data:image/jpeg;base64,/9j/4AAQ...",
+      "format": "jpeg",
       "metadata": {
-        "url": "https://example.com",
+        "viewport": { "width": 375, "height": 800 },
+        "actualContentSize": { "width": 375, "height": 2340 },
+        "loadTime": 1250,
         "timestamp": "2024-01-15T10:30:00Z",
-        "viewport": { "width": 375, "height": 1024 },
-        "actualDimensions": { "width": 375, "height": 2340 },
-        "loadTime": 2340
+        "optimized": false
       }
     }
-  ]
+  ],
+  "pageErrors": [
+    {
+      "type": "console",
+      "level": "info",
+      "message": "User clicked login button",
+      "source": "https://example.com/app.js",
+      "line": 42,
+      "column": 8,
+      "timestamp": "2024-01-15T10:30:01Z"
+    },
+    {
+      "type": "network",
+      "level": "warning", 
+      "message": "Failed to load resource: 404 Not Found",
+      "url": "https://example.com/missing-image.png",
+      "statusCode": 404,
+      "timestamp": "2024-01-15T10:30:02Z"
+    }
+  ],
+  "errorSummary": {
+    "totalErrors": 0,
+    "totalWarnings": 1,
+    "totalLogs": 1,
+    "hasJavaScriptErrors": false,
+    "hasNetworkErrors": false,
+    "hasConsoleLogs": true
+  }
 }
 ```
+
+## Error Reporting & Debugging
+
+### ✅ NEW: Comprehensive Error Monitoring
+The screenshot tool now captures and reports all page activity, making it perfect for debugging web applications:
+
+#### What Gets Captured:
+- **🟥 JavaScript Errors**: Runtime errors with stack traces, line numbers, and sources
+- **🟨 Console Messages**: All `console.log()`, `console.warn()`, `console.error()` output  
+- **🟦 Network Issues**: Failed requests (404s, 500s), CORS violations, timeouts
+- **🟪 Security Problems**: CORS policy violations, blocked requests
+
+#### Error Types:
+```typescript
+interface PageError {
+  type: "javascript" | "console" | "network" | "security";
+  level: "error" | "warning" | "info";
+  message: string;
+  source?: string;        // File/URL where error occurred
+  line?: number;          // Line number (for JS errors)
+  column?: number;        // Column number (for JS errors)  
+  timestamp: string;      // When the error occurred
+  url?: string;           // Request URL (for network errors)
+  statusCode?: number;    // HTTP status code (for network errors)
+}
+```
+
+#### Summary Statistics:
+- Total count of errors, warnings, and console logs
+- Quick flags for JavaScript and network error presence
+- Instant overview of page health
+
+#### How It Appears in Cursor:
+When you take a screenshot, Cursor will show:
+1. **Visual Screenshot** - The actual page capture
+2. **Activity Summary** - "📊 Page Activity Detected: • 2 error(s) • 1 warning(s) • 5 console log(s)"
+3. **Detailed Report** - Grouped by error type with full context
+
+This makes the screenshot tool incredibly powerful for **debugging, development, and code review** - you can literally see what's happening on the page while viewing how it looks!
 
 ## Installation
 
@@ -170,13 +237,22 @@ Restart Cursor to load the MCP server. You should see the screenshot tool availa
 
 ### 4. Usage in Cursor
 You can now ask Cursor to take screenshots and they will appear as inline images in the chat:
+
+#### Basic Screenshots:
 - "Take a screenshot of https://example.com"
-- "Capture mobile and desktop screenshots of this website"
+- "Capture mobile and desktop screenshots of this website"  
 - "Show me how this page looks on different screen sizes"
 - "Take a high-quality PNG screenshot of this website"
 - "Get optimized JPEG screenshots for faster loading"
 
-The screenshots will appear directly in Cursor's chat interface, allowing multimodal AI models (GPT-4o, Claude 3, Gemini Pro) to analyze them visually and provide feedback on design, layout, and functionality.
+#### ✅ NEW - Error Debugging:
+- "Take a screenshot of my app and show me any JavaScript errors"
+- "Debug this webpage - capture screenshots and check for console errors"
+- "Screenshot this site and tell me about any network failures"
+- "Show me the page visually and report any CORS issues"
+- "Take screenshots and analyze all console output for debugging"
+
+The screenshots will appear directly in Cursor's chat interface with **comprehensive error reporting**, allowing multimodal AI models (GPT-4o, Claude 3, Gemini Pro) to analyze them visually AND provide feedback on both design/layout AND technical issues like JavaScript errors, failed network requests, and console warnings.
 
 ## Development
 
