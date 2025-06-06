@@ -108,11 +108,68 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // Build content array with text description and images
       const content = [];
       
-      // Add summary text
+      // Add summary text with error information
+      let summaryText = `Successfully captured ${result.screenshots.length} screenshot(s) for ${request.params.arguments?.url || 'the requested URL'}`;
+      
+      // Add error summary if there are any issues
+      if (result.errorSummary.totalErrors > 0 || result.errorSummary.totalWarnings > 0 || result.errorSummary.totalLogs > 0) {
+        summaryText += `\n\n📊 Page Activity Detected:`;
+        if (result.errorSummary.totalErrors > 0) {
+          summaryText += `\n• ${result.errorSummary.totalErrors} error(s)`;
+        }
+        if (result.errorSummary.totalWarnings > 0) {
+          summaryText += `\n• ${result.errorSummary.totalWarnings} warning(s)`;
+        }
+        if (result.errorSummary.totalLogs > 0) {
+          summaryText += `\n• ${result.errorSummary.totalLogs} console log(s)`;
+        }
+        if (result.errorSummary.hasJavaScriptErrors) {
+          summaryText += `\n• JavaScript errors present`;
+        }
+        if (result.errorSummary.hasNetworkErrors) {
+          summaryText += `\n• Network/loading errors present`;
+        }
+        if (result.errorSummary.hasConsoleLogs) {
+          summaryText += `\n• Console logs available`;
+        }
+      } else {
+        summaryText += `\n✅ No errors, warnings, or console activity detected`;
+      }
+      
       content.push({
         type: "text",
-        text: `Successfully captured ${result.screenshots.length} screenshot(s) for ${request.params.arguments?.url || 'the requested URL'}`
+        text: summaryText
       });
+      
+      // Add detailed error information if present
+      if (result.pageErrors.length > 0) {
+        let errorDetails = "\n📋 Detailed Error Report:\n";
+        
+        // Group errors by type
+        const errorsByType = result.pageErrors.reduce((acc, error) => {
+          if (!acc[error.type]) acc[error.type] = [];
+          acc[error.type].push(error);
+          return acc;
+        }, {} as Record<string, typeof result.pageErrors>);
+        
+        Object.entries(errorsByType).forEach(([type, errors]) => {
+          errorDetails += `\n${type.toUpperCase()} ISSUES (${errors.length}):\n`;
+          errors.forEach((error, index) => {
+            const icon = error.level === 'error' ? '❌' : '⚠️';
+            errorDetails += `${icon} ${error.message}`;
+            if (error.source) errorDetails += `\n   Source: ${error.source}`;
+            if (error.line && error.column) errorDetails += ` (line ${error.line}, col ${error.column})`;
+            if (error.url && error.url !== error.source) errorDetails += `\n   URL: ${error.url}`;
+            if (error.statusCode) errorDetails += ` [${error.statusCode}]`;
+            errorDetails += `\n   Time: ${new Date(error.timestamp).toLocaleTimeString()}\n`;
+          });
+        });
+        
+        content.push({
+          type: "text",
+          text: errorDetails
+        });
+      }
       
       // Add each screenshot as an image
       for (const screenshot of result.screenshots) {

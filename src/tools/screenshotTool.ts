@@ -11,6 +11,18 @@ export interface ScreenshotArgs {
   quality?: number; // JPEG quality (0-100)
 }
 
+export interface PageError {
+  type: "javascript" | "console" | "network" | "security";
+  level: "error" | "warning" | "info";
+  message: string;
+  source?: string;
+  line?: number;
+  column?: number;
+  timestamp: string;
+  url?: string;
+  statusCode?: number;
+}
+
 export interface ScreenshotResult {
   success: boolean;
   screenshots: {
@@ -27,6 +39,15 @@ export interface ScreenshotResult {
       originalSize?: { width: number; height: number };
     };
   }[];
+  pageErrors: PageError[];
+  errorSummary: {
+    totalErrors: number;
+    totalWarnings: number;
+    totalLogs: number;
+    hasJavaScriptErrors: boolean;
+    hasNetworkErrors: boolean;
+    hasConsoleLogs: boolean;
+  };
   error?: string;
 }
 
@@ -57,6 +78,76 @@ async function getFullPageDimensions(page: Page): Promise<{ width: number; heigh
   });
 }
 
+async function collectPageErrors(page: Page): Promise<PageError[]> {
+  const errors: PageError[] = [];
+  
+  // Collect JavaScript errors
+  page.on('pageerror', (error) => {
+    errors.push({
+      type: "javascript",
+      level: "error",
+      message: error.message,
+      source: error.stack?.split('\n')[0] || '',
+      timestamp: new Date().toISOString()
+    });
+  });
+  
+  // Collect console messages (errors, warnings, logs, info, debug)
+  page.on('console', (msg) => {
+    const msgType = msg.type();
+    
+    // Determine level based on console type
+    let level: "error" | "warning" | "info";
+    if (msgType === 'error' || msgType === 'assert') {
+      level = "error";
+    } else if (msgType === 'warning') {
+      level = "warning";
+    } else {
+      level = "info"; // For log, info, debug, etc.
+    }
+    
+    errors.push({
+      type: "console",
+      level: level,
+      message: msg.text(),
+      source: msg.location()?.url,
+      line: msg.location()?.lineNumber,
+      column: msg.location()?.columnNumber,
+      timestamp: new Date().toISOString()
+    });
+  });
+  
+  // Collect network failures
+  page.on('response', (response) => {
+    if (!response.ok()) {
+      errors.push({
+        type: "network",
+        level: response.status() >= 500 ? "error" : "warning",
+        message: `Failed to load resource: ${response.status()} ${response.statusText()}`,
+        url: response.url(),
+        statusCode: response.status(),
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+  
+  // Collect security/CORS errors
+  page.on('requestfailed', (request) => {
+    const failure = request.failure();
+    if (failure) {
+      errors.push({
+        type: failure.errorText.includes('CORS') ? "security" : "network",
+        level: "error",
+        message: `Request failed: ${failure.errorText}`,
+        url: request.url(),
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+  
+  return errors;
+}
+
 export async function screenshotTool(args: any): Promise<ScreenshotResult> {
   const {
     url,
@@ -73,6 +164,15 @@ export async function screenshotTool(args: any): Promise<ScreenshotResult> {
     return {
       success: false,
       screenshots: [],
+      pageErrors: [],
+      errorSummary: {
+        totalErrors: 0,
+        totalWarnings: 0,
+        totalLogs: 0,
+        hasJavaScriptErrors: false,
+        hasNetworkErrors: false,
+        hasConsoleLogs: false,
+      },
       error: "URL is required"
     };
   }
@@ -80,6 +180,9 @@ export async function screenshotTool(args: any): Promise<ScreenshotResult> {
   try {
     const browser = await getBrowser(headless);
     const page = await browser.newPage();
+    
+    // Start collecting errors
+    const pageErrors = await collectPageErrors(page);
     
     const results = [];
     
@@ -156,15 +259,39 @@ export async function screenshotTool(args: any): Promise<ScreenshotResult> {
     
     await page.close();
     
+    // Create error summary
+    const errors = pageErrors.filter(e => e.level === 'error');
+    const warnings = pageErrors.filter(e => e.level === 'warning');
+    const logs = pageErrors.filter(e => e.level === 'info');
+    const errorSummary = {
+      totalErrors: errors.length,
+      totalWarnings: warnings.length,
+      totalLogs: logs.length,
+      hasJavaScriptErrors: pageErrors.some(e => e.type === 'javascript' && e.level === 'error'),
+      hasNetworkErrors: pageErrors.some(e => e.type === 'network' && e.level === 'error'),
+      hasConsoleLogs: pageErrors.some(e => e.type === 'console' && e.level === 'info'),
+    };
+    
     return {
       success: true,
       screenshots: results,
+      pageErrors,
+      errorSummary,
     };
     
   } catch (error) {
     return {
       success: false,
       screenshots: [],
+      pageErrors: [],
+      errorSummary: {
+        totalErrors: 0,
+        totalWarnings: 0,
+        totalLogs: 0,
+        hasJavaScriptErrors: false,
+        hasNetworkErrors: false,
+        hasConsoleLogs: false,
+      },
       error: error instanceof Error ? error.message : String(error)
     };
   }
