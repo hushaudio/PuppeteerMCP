@@ -1,4 +1,6 @@
 import puppeteer, { Browser, Page } from "puppeteer";
+import path from "path";
+import os from "os";
 
 // Define action types for page interactions
 export interface PageAction {
@@ -22,7 +24,19 @@ export interface ScreenshotArgs {
   maxWidth?: number; // Max width for optimization
   imageFormat?: "png" | "jpeg";
   quality?: number; // JPEG quality (0-100)
-  actions?: PageAction[]; // NEW: Array of actions to perform before screenshot
+  actions?: PageAction[]; // Array of actions to perform before screenshot
+  sessionId?: string; // Session identifier for persistent browser state
+  userDataDir?: string; // Custom user data directory path
+  cookies?: Array<{ // NEW: Cookies to inject into the session
+    name: string;
+    value: string;
+    domain?: string;
+    path?: string;
+    expires?: number;
+    httpOnly?: boolean;
+    secure?: boolean;
+    sameSite?: "Strict" | "Lax" | "None";
+  }>;
 }
 
 export interface PageError {
@@ -63,6 +77,11 @@ export interface ScreenshotResult {
     hasConsoleLogs: boolean;
   };
   error?: string;
+  sessionInfo?: {
+    sessionId: string;
+    userDataDir: string;
+    persistent: boolean;
+  };
 }
 
 const DEFAULT_BREAKPOINTS = [
@@ -71,16 +90,48 @@ const DEFAULT_BREAKPOINTS = [
   { width: 1280 }, // Desktop
 ];
 
-let browserInstance: Browser | null = null;
+// Store browser instances by session ID for persistent sessions
+const browserInstances = new Map<string, Browser>();
 
-async function getBrowser(headless: boolean = true): Promise<Browser> {
-  if (!browserInstance || !browserInstance.connected) {
-    browserInstance = await puppeteer.launch({
-      headless,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+async function getBrowser(headless: boolean = true, sessionId?: string, userDataDir?: string): Promise<Browser> {
+  const sessionKey = sessionId || 'default';
+  
+  // Check if we have an existing browser for this session
+  if (browserInstances.has(sessionKey)) {
+    const browser = browserInstances.get(sessionKey)!;
+    if (browser.connected) {
+      return browser;
+    } else {
+      // Clean up disconnected browser
+      browserInstances.delete(sessionKey);
+    }
   }
-  return browserInstance;
+  
+  // Determine user data directory for persistent sessions
+  let finalUserDataDir: string | undefined;
+  if (sessionId || userDataDir) {
+    if (userDataDir) {
+      finalUserDataDir = userDataDir;
+    } else if (sessionId) {
+      // Create a session-specific directory in temp folder
+      finalUserDataDir = path.join(os.tmpdir(), 'puppeteer-mcp-sessions', sessionId);
+    }
+  }
+  
+  // Launch new browser with optional persistent session
+  const launchOptions: any = {
+    headless,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  };
+  
+  if (finalUserDataDir) {
+    launchOptions.userDataDir = finalUserDataDir;
+  }
+  
+  const browser = await puppeteer.launch(launchOptions);
+  browserInstances.set(sessionKey, browser);
+  
+  return browser;
 }
 
 async function getFullPageDimensions(page: Page): Promise<{ width: number; height: number }> {
@@ -242,6 +293,32 @@ async function executePageActions(page: Page, actions: PageAction[]): Promise<vo
   }
 }
 
+async function setCookies(page: Page, cookies: Array<{name: string; value: string; domain?: string; path?: string; expires?: number; httpOnly?: boolean; secure?: boolean; sameSite?: "Strict" | "Lax" | "None";}>, url: string): Promise<void> {
+  if (!cookies || cookies.length === 0) return;
+  
+  // Parse domain from URL if not provided
+  const parsedUrl = new URL(url);
+  
+  for (const cookie of cookies) {
+    const cookieToSet = {
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain || parsedUrl.hostname,
+      path: cookie.path || '/',
+      expires: cookie.expires,
+      httpOnly: cookie.httpOnly,
+      secure: cookie.secure,
+      sameSite: cookie.sameSite,
+    };
+    
+    try {
+      await page.setCookie(cookieToSet);
+    } catch (error) {
+      console.error(`Failed to set cookie ${cookie.name}:`, error);
+    }
+  }
+}
+
 export async function screenshotTool(args: any): Promise<ScreenshotResult> {
   const {
     url,
@@ -253,7 +330,20 @@ export async function screenshotTool(args: any): Promise<ScreenshotResult> {
     imageFormat = "jpeg", // Default to JPEG for smaller file size
     quality = 80, // Default JPEG quality
     actions = [], // Default empty actions array
+    sessionId,
+    userDataDir,
+    cookies,
   }: ScreenshotArgs = args;
+
+  // Determine user data directory for session info
+  let finalUserDataDir: string | undefined;
+  if (sessionId || userDataDir) {
+    if (userDataDir) {
+      finalUserDataDir = userDataDir;
+    } else if (sessionId) {
+      finalUserDataDir = path.join(os.tmpdir(), 'puppeteer-mcp-sessions', sessionId);
+    }
+  }
 
   if (!url) {
     return {
@@ -273,7 +363,7 @@ export async function screenshotTool(args: any): Promise<ScreenshotResult> {
   }
 
   try {
-    const browser = await getBrowser(headless);
+    const browser = await getBrowser(headless, sessionId, userDataDir);
     const page = await browser.newPage();
     
     // Start collecting errors
@@ -293,6 +383,11 @@ export async function screenshotTool(args: any): Promise<ScreenshotResult> {
         width: breakpoint.width, 
         height: 800 // Initial height, will capture full page
       });
+      
+      // Set cookies before navigation if provided
+      if (cookies && cookies.length > 0) {
+        await setCookies(page, cookies, url);
+      }
       
       // Navigate to URL
       await page.goto(url, { 
@@ -372,12 +467,23 @@ export async function screenshotTool(args: any): Promise<ScreenshotResult> {
       hasConsoleLogs: pageErrors.some(e => e.type === 'console' && e.level === 'info'),
     };
     
-    return {
+    const result: ScreenshotResult = {
       success: true,
       screenshots: results,
       pageErrors,
       errorSummary,
     };
+
+    // Add session info if session was used
+    if (sessionId) {
+      result.sessionInfo = {
+        sessionId,
+        userDataDir: finalUserDataDir || path.join(os.tmpdir(), 'puppeteer-mcp-sessions', sessionId),
+        persistent: true,
+      };
+    }
+    
+    return result;
     
   } catch (error) {
     return {
@@ -399,8 +505,10 @@ export async function screenshotTool(args: any): Promise<ScreenshotResult> {
 
 // Cleanup function for graceful shutdown
 export async function cleanup(): Promise<void> {
-  if (browserInstance) {
-    await browserInstance.close();
-    browserInstance = null;
+  if (browserInstances.size > 0) {
+    for (const browser of browserInstances.values()) {
+      await browser.close();
+    }
+    browserInstances.clear();
   }
 } 

@@ -121,6 +121,57 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                                 required: ["type"]
                             },
                             description: "Array of page interactions to perform before taking screenshots"
+                        },
+                        sessionId: {
+                            type: "string",
+                            description: "Session identifier for persistent browser state (maintains cookies, login data, localStorage, etc.)"
+                        },
+                        userDataDir: {
+                            type: "string",
+                            description: "Custom user data directory path for browser session storage"
+                        },
+                        cookies: {
+                            type: "array",
+                            items: {
+                                type: "object",
+                                properties: {
+                                    name: {
+                                        type: "string",
+                                        description: "Cookie name"
+                                    },
+                                    value: {
+                                        type: "string",
+                                        description: "Cookie value"
+                                    },
+                                    domain: {
+                                        type: "string",
+                                        description: "Cookie domain (optional, defaults to URL domain)"
+                                    },
+                                    path: {
+                                        type: "string",
+                                        description: "Cookie path (optional, defaults to '/')"
+                                    },
+                                    expires: {
+                                        type: "number",
+                                        description: "Cookie expiration timestamp (optional)"
+                                    },
+                                    httpOnly: {
+                                        type: "boolean",
+                                        description: "HttpOnly flag (optional)"
+                                    },
+                                    secure: {
+                                        type: "boolean",
+                                        description: "Secure flag (optional)"
+                                    },
+                                    sameSite: {
+                                        type: "string",
+                                        enum: ["Strict", "Lax", "None"],
+                                        description: "SameSite policy (optional)"
+                                    }
+                                },
+                                required: ["name", "value"]
+                            },
+                            description: "Cookies to inject into the browser session before navigation"
                         }
                     },
                     required: ["url"]
@@ -145,6 +196,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             if (request.params.arguments?.actions && Array.isArray(request.params.arguments.actions) && request.params.arguments.actions.length > 0) {
                 const actionTypes = request.params.arguments.actions.map((action) => action.type);
                 summaryText += `\n🎯 Executed ${actionTypes.length} page action(s): ${actionTypes.join(', ')}`;
+            }
+            // Add session info if session was used
+            if (result.sessionInfo) {
+                summaryText += `\n🔒 Session: ${result.sessionInfo.sessionId} (persistent login data maintained)`;
             }
             // Add error summary if there are any issues
             if (result.errorSummary.totalErrors > 0 || result.errorSummary.totalWarnings > 0 || result.errorSummary.totalLogs > 0) {

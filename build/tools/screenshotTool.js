@@ -1,18 +1,48 @@
 import puppeteer from "puppeteer";
+import path from "path";
+import os from "os";
 const DEFAULT_BREAKPOINTS = [
     { width: 375 }, // Mobile
     { width: 768 }, // Tablet
     { width: 1280 }, // Desktop
 ];
-let browserInstance = null;
-async function getBrowser(headless = true) {
-    if (!browserInstance || !browserInstance.connected) {
-        browserInstance = await puppeteer.launch({
-            headless,
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        });
+// Store browser instances by session ID for persistent sessions
+const browserInstances = new Map();
+async function getBrowser(headless = true, sessionId, userDataDir) {
+    const sessionKey = sessionId || 'default';
+    // Check if we have an existing browser for this session
+    if (browserInstances.has(sessionKey)) {
+        const browser = browserInstances.get(sessionKey);
+        if (browser.connected) {
+            return browser;
+        }
+        else {
+            // Clean up disconnected browser
+            browserInstances.delete(sessionKey);
+        }
     }
-    return browserInstance;
+    // Determine user data directory for persistent sessions
+    let finalUserDataDir;
+    if (sessionId || userDataDir) {
+        if (userDataDir) {
+            finalUserDataDir = userDataDir;
+        }
+        else if (sessionId) {
+            // Create a session-specific directory in temp folder
+            finalUserDataDir = path.join(os.tmpdir(), 'puppeteer-mcp-sessions', sessionId);
+        }
+    }
+    // Launch new browser with optional persistent session
+    const launchOptions = {
+        headless,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    };
+    if (finalUserDataDir) {
+        launchOptions.userDataDir = finalUserDataDir;
+    }
+    const browser = await puppeteer.launch(launchOptions);
+    browserInstances.set(sessionKey, browser);
+    return browser;
 }
 async function getFullPageDimensions(page) {
     return await page.evaluate(() => {
@@ -165,12 +195,46 @@ async function executePageActions(page, actions) {
         }
     }
 }
+async function setCookies(page, cookies, url) {
+    if (!cookies || cookies.length === 0)
+        return;
+    // Parse domain from URL if not provided
+    const parsedUrl = new URL(url);
+    for (const cookie of cookies) {
+        const cookieToSet = {
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain || parsedUrl.hostname,
+            path: cookie.path || '/',
+            expires: cookie.expires,
+            httpOnly: cookie.httpOnly,
+            secure: cookie.secure,
+            sameSite: cookie.sameSite,
+        };
+        try {
+            await page.setCookie(cookieToSet);
+        }
+        catch (error) {
+            console.error(`Failed to set cookie ${cookie.name}:`, error);
+        }
+    }
+}
 export async function screenshotTool(args) {
     const { url, breakpoints = DEFAULT_BREAKPOINTS, headless = true, waitFor = "networkidle0", timeout = 30000, maxWidth = 1280, // Default max width for optimization
     imageFormat = "jpeg", // Default to JPEG for smaller file size
     quality = 80, // Default JPEG quality
     actions = [], // Default empty actions array
-     } = args;
+    sessionId, userDataDir, cookies, } = args;
+    // Determine user data directory for session info
+    let finalUserDataDir;
+    if (sessionId || userDataDir) {
+        if (userDataDir) {
+            finalUserDataDir = userDataDir;
+        }
+        else if (sessionId) {
+            finalUserDataDir = path.join(os.tmpdir(), 'puppeteer-mcp-sessions', sessionId);
+        }
+    }
     if (!url) {
         return {
             success: false,
@@ -188,7 +252,7 @@ export async function screenshotTool(args) {
         };
     }
     try {
-        const browser = await getBrowser(headless);
+        const browser = await getBrowser(headless, sessionId, userDataDir);
         const page = await browser.newPage();
         // Start collecting errors
         const pageErrors = await collectPageErrors(page);
@@ -203,6 +267,10 @@ export async function screenshotTool(args) {
                 width: breakpoint.width,
                 height: 800 // Initial height, will capture full page
             });
+            // Set cookies before navigation if provided
+            if (cookies && cookies.length > 0) {
+                await setCookies(page, cookies, url);
+            }
             // Navigate to URL
             await page.goto(url, {
                 waitUntil: waitFor,
@@ -270,12 +338,21 @@ export async function screenshotTool(args) {
             hasNetworkErrors: pageErrors.some(e => e.type === 'network' && e.level === 'error'),
             hasConsoleLogs: pageErrors.some(e => e.type === 'console' && e.level === 'info'),
         };
-        return {
+        const result = {
             success: true,
             screenshots: results,
             pageErrors,
             errorSummary,
         };
+        // Add session info if session was used
+        if (sessionId) {
+            result.sessionInfo = {
+                sessionId,
+                userDataDir: finalUserDataDir || path.join(os.tmpdir(), 'puppeteer-mcp-sessions', sessionId),
+                persistent: true,
+            };
+        }
+        return result;
     }
     catch (error) {
         return {
@@ -296,8 +373,10 @@ export async function screenshotTool(args) {
 }
 // Cleanup function for graceful shutdown
 export async function cleanup() {
-    if (browserInstance) {
-        await browserInstance.close();
-        browserInstance = null;
+    if (browserInstances.size > 0) {
+        for (const browser of browserInstances.values()) {
+            await browser.close();
+        }
+        browserInstances.clear();
     }
 }
