@@ -120,8 +120,8 @@ async function getBrowser(headless: boolean = true, sessionId?: string, userData
   
   // Launch new browser with optional persistent session
   const launchOptions: any = {
-    headless,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      headless,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
   };
   
   if (finalUserDataDir) {
